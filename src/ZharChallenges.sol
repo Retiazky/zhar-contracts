@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "src/IFireXp.sol";
+import "forge-std/console.sol";
 
 /**
  * @title ZharChallenges
@@ -14,6 +15,7 @@ import "src/IFireXp.sol";
  * - 🔥 IGNITER: Creates challenges
  * - ⚔️ ZHARRIOR: Completes challenges  
  * - 🪵 STOKER: Stakes on challenges
+ * - 🔮 ORACLE: Validates disputed challenges
  * Note: ✨ SPARK A.I. operates off-chain for safety and approval
  */
  
@@ -24,12 +26,14 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
     IFireXp public immutable fireXPToken;
     IERC20 public immutable europToken;
     address public defiTreasury;
+    address public tempOracleAddress; // Centralized oracle for now
     
     uint256 public constant ZHARRIOR_SHARE = 7000; // 70.00%
     uint256 public constant MAX_IGNITER_SHARE = 2000; // Max 20.00%
     uint256 public constant DEFI_SHARE = 500; // 5.00%
     uint256 public constant MAX_IGNITER_CAP = 2500 * 10**18; // €2,500 max
     uint256 public constant DISPUTE_THRESHOLD = 5000; // 50.00% needed to dispute
+    uint256 public constant CONTEST_PERIOD = 2 days; // 2 days to contest disputes
     
     uint256 public challengeCounter;
     
@@ -56,6 +60,8 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         uint256 proofUpdatedAt;
         uint256 claimedAt;
         uint256 disputePeriod; // Time window for disputes after proof submission
+        uint256 disputeContestDeadline; // Deadline for contesting disputes
+        string contestReason; // Reason for contesting
         ChallengeStatus status;
         mapping(address => uint256) stakes; // Stoker stakes
         mapping(address => bool) disputes; // Track who disputed
@@ -66,6 +72,7 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
     enum ChallengeStatus {
         Active,
         ProofSubmitted,
+        ValidationByOracle,
         Completed,
         Expired,
         Failed
@@ -86,10 +93,13 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
     event ChallengeDepositIncrease(uint256 indexed challengeId, address indexed stoker, uint256 amount);
     event ProofSubmitted(uint256 indexed challengeId, string proofUri);
     event ProofDisputed(uint256 indexed challengeId, address indexed disputer, uint256 disputeValue, uint256 totalDisputeValue);
+    event DisputesContested(uint256 indexed challengeId, address indexed challenger, string reason);
+    event OracleValidation(uint256 indexed challengeId, address indexed oracle, bool approved, string reason);
     event ChallengeCompleted(uint256 indexed challengeId, uint256 zharriorReward, uint256 igniterReward, uint256 protocolReward);
     event ChallengeFailed(uint256 indexed challengeId, uint256 totalDisputeValue, uint256 treasuryValue);
     event ChallengeExpired(uint256 indexed challengeId);
     event FireXPAwarded(address indexed user, uint256 amount);
+    event OracleAddressUpdated(address indexed oldOracle, address indexed newOracle);
     
     // ============ MODIFIERS ============
     
@@ -109,18 +119,25 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         _;
     }
     
+    modifier onlyOracle() {
+        require(msg.sender == tempOracleAddress, "Only oracle can call this function");
+        _;
+    }
+    
     // ============ CONSTRUCTOR ============
     
     constructor(
         address _fireXPToken,
         address _europToken,
         address _defiTreasury,
+        address _tempOracleAddress,
         address _owner
     ) Ownable(_owner) {
         
         europToken = IERC20(_europToken);
         fireXPToken = IFireXp(_fireXPToken);
         defiTreasury = _defiTreasury;
+        tempOracleAddress = _tempOracleAddress;
     }
     
     // ============ CREATOR FUNCTIONS ============
@@ -252,10 +269,54 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         
         // Check if dispute threshold reached (50% of total treasury)
         if ((challenge.totalDisputeValue * 10000) >= (challenge.treasury * DISPUTE_THRESHOLD)) {
+            // Set contest deadline when threshold is reached
+            challenge.disputeContestDeadline = block.timestamp + CONTEST_PERIOD;
+        }
+    }
+    
+    /**
+     * @dev Contest disputes (Challenger function) - available for 2 days after dispute threshold reached
+     */
+    function contestDisputes(uint256 _challengeId, string memory _reason) 
+        external 
+        challengeExists(_challengeId)
+        whenNotPaused 
+    {
+        Challenge storage challenge = challenges[_challengeId];
+        require(msg.sender == challenge.forCreator, "Only challenge creator can contest");
+        require(challenge.status == ChallengeStatus.ProofSubmitted, "Invalid challenge status");
+        require(challenge.disputeContestDeadline > 0, "No disputes to contest");
+        require(block.timestamp <= challenge.disputeContestDeadline, "Contest period expired");
+        require(bytes(_reason).length > 0, "Contest reason cannot be empty");
+        
+        challenge.contestReason = _reason;
+        challenge.status = ChallengeStatus.ValidationByOracle;
+        
+        emit DisputesContested(_challengeId, msg.sender, _reason);
+    }
+
+    // ============ ORACLE FUNCTIONS ============
+    
+    /**
+     * @dev Oracle validates disputed challenge
+     */
+    function validateChallenge(uint256 _challengeId, bool _approved, string memory _reason) 
+        external 
+        challengeExists(_challengeId)
+        onlyOracle
+        whenNotPaused 
+    {
+        Challenge storage challenge = challenges[_challengeId];
+        require(challenge.status == ChallengeStatus.ValidationByOracle, "Not awaiting oracle validation");
+        
+        emit OracleValidation(_challengeId, msg.sender, _approved, _reason);
+        
+        if (_approved) {
+            _completeChallenge(_challengeId);
+        } else {
             _failChallenge(_challengeId);
         }
     }
-
     
     // ============ CLAIM FUNCTIONS ============
     
@@ -276,10 +337,25 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
             "Dispute period not over"
         );
         
-        // Check if challenge was disputed beyond threshold
-        if ((challenge.totalDisputeValue * 10000) >= (challenge.treasury * DISPUTE_THRESHOLD)) {
-            _failChallenge(_challengeId);
+        // Check if dispute threshold was reached
+        bool disputeThresholdReached = (challenge.totalDisputeValue * 10000) >= (challenge.treasury * DISPUTE_THRESHOLD);
+        
+        if (disputeThresholdReached) {
+            // Check if challenger contested and contest period expired
+            if (challenge.disputeContestDeadline > 0 && 
+                block.timestamp > challenge.disputeContestDeadline && 
+                challenge.status != ChallengeStatus.ValidationByOracle) {
+                // Challenger didn't contest in time, challenge fails
+                _failChallenge(_challengeId);
+            } else if (challenge.status == ChallengeStatus.ValidationByOracle) {
+                // Challenge is contested, awaiting oracle validation
+                revert("Challenge awaiting oracle validation");
+            } else {
+                // Contest period still active
+                revert("Contest period still active");
+            }
         } else {
+            // No significant disputes, complete the challenge
             _completeChallenge(_challengeId);
         }
     }
@@ -294,6 +370,18 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         whenNotPaused 
     {
         Challenge storage challenge = challenges[_challengeId];
+        console.log("expiration", challenge.expiration);
+        console.log("status", uint256(challenge.status));
+        console.log("block.timestamp", block.timestamp);
+        if(challenge.status == ChallengeStatus.Active) {
+            require(block.timestamp >= challenge.expiration, "Challenge not expired");
+            challenge.status = ChallengeStatus.Expired;
+            emit ChallengeExpired(_challengeId);
+        } else if (challenge.status == ChallengeStatus.ProofSubmitted) {
+            require(block.timestamp >= challenge.proofUpdatedAt + challenge.disputePeriod, "Dispute period not over");
+            challenge.status = ChallengeStatus.Expired;
+            emit ChallengeExpired(_challengeId);
+        }
         require(
             challenge.status == ChallengeStatus.Failed || 
             challenge.status == ChallengeStatus.Expired, 
@@ -354,7 +442,6 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         emit ChallengeCompleted(_challengeId, zharriorShare, igniterShare, defiShare);
     }
     
-    
     /**
      * @dev Fail challenge due to disputes - enable refunds
      */
@@ -412,7 +499,8 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         uint256 totalTreasury,
         uint256 disputePercentage,
         bool thresholdReached,
-        uint256 timeLeft
+        uint256 timeLeft,
+        uint256 contestDeadline
     ) {
         Challenge storage challenge = challenges[_challengeId];
         
@@ -420,13 +508,30 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         totalTreasury = challenge.treasury;
         disputePercentage = totalTreasury > 0 ? (totalDisputeValue * 10000) / totalTreasury : 0;
         thresholdReached = disputePercentage >= DISPUTE_THRESHOLD;
+        contestDeadline = challenge.disputeContestDeadline;
         
         if (challenge.status == ChallengeStatus.ProofSubmitted && challenge.proofUpdatedAt > 0) {
             uint256 disputeEndTime = challenge.proofUpdatedAt + challenge.disputePeriod;
             timeLeft = block.timestamp < disputeEndTime ? disputeEndTime - block.timestamp : 0;
         }
         
-        return (totalDisputeValue, totalTreasury, disputePercentage, thresholdReached, timeLeft);
+        return (totalDisputeValue, totalTreasury, disputePercentage, thresholdReached, timeLeft, contestDeadline);
+    }
+    
+    function getContestInfo(uint256 _challengeId) external view challengeExists(_challengeId) returns (
+        uint256 contestDeadline,
+        bool canContest
+    ) {
+        Challenge storage challenge = challenges[_challengeId];
+        
+        contestDeadline = challenge.disputeContestDeadline;
+        canContest = (
+            challenge.status == ChallengeStatus.ProofSubmitted &&
+            challenge.disputeContestDeadline > 0 &&
+            block.timestamp <= challenge.disputeContestDeadline
+        );
+        
+        return (contestDeadline, canContest);
     }
     
     function getUserChallenges(address _user) external view returns (uint256[] memory) {
@@ -448,6 +553,13 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
     function setDefiTreasury(address _newTreasury) external onlyOwner {
         require(_newTreasury != address(0), "Invalid address");
         defiTreasury = _newTreasury;
+    }
+    
+    function setOracleAddress(address _newOracle) external onlyOwner {
+        require(_newOracle != address(0), "Invalid address");
+        address oldOracle = tempOracleAddress;
+        tempOracleAddress = _newOracle;
+        emit OracleAddressUpdated(oldOracle, _newOracle);
     }
     
     function pause() external onlyOwner {

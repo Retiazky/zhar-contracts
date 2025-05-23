@@ -22,6 +22,7 @@ contract DeployScript is Script {
       address(fireXP),
       address(europ),
       address(europ),
+      deployer,
       deployer
     );
     fireXP.transferOwnership(address(zharChallenges));

@@ -32,6 +32,7 @@ contract DeployWithTestScript is Script {
             address(fireXP),
             address(europ),
             address(europ),
+            deployer,
             deployer
         );
         console.log("ZharChallenges contract deployed at:", address(zharChallenges));
