@@ -111,8 +111,8 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
     // ============ CONSTRUCTOR ============
     
     constructor(
-        address _europToken,
         address _fireXPToken,
+        address _europToken,
         address _defiTreasury,
         address _owner
     ) Ownable(_owner) {
@@ -155,7 +155,7 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         require(creators[_forCreator].isActive, "Creator not registered");
         require(_expiration > block.timestamp + 36 hours, "Expiration must be at least 36 hours in future");
         require(_challengeCreatorReward <= 9000, "Invalid reward percentage"); // Max 90%
-        require(_disputePeriod >= 24 hours && _disputePeriod <= 7 days, "Invalid dispute period");
+        // require(_disputePeriod >= 24 hours && _disputePeriod <= 7 days, "Invalid dispute period");
         require(bytes(_description).length > 0, "Description cannot be empty");
         
         challengeCounter++;
