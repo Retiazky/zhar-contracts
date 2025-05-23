@@ -81,7 +81,8 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
     // ============ EVENTS ============
     
     event CreatorRegistered(address indexed creator, string name, string metadataUri);
-    event ChallengeCreated(uint256 indexed challengeId, address indexed igniter, address indexed forCreator);
+    event ChallengeCreated(uint256 indexed challengeId, address indexed igniter, address indexed forCreator,
+     uint256 expiration, uint256 disputePeriod, string description, uint256 challengeCreatorReward);
     event ChallengeDepositIncrease(uint256 indexed challengeId, address indexed stoker, uint256 amount);
     event ProofSubmitted(uint256 indexed challengeId, string proofUri);
     event ProofDisputed(uint256 indexed challengeId, address indexed disputer, uint256 disputeValue, uint256 totalDisputeValue);
@@ -174,7 +175,8 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         userChallenges[msg.sender].push(challengeCounter);
         userChallenges[_forCreator].push(challengeCounter);
         
-        emit ChallengeCreated(challengeCounter, msg.sender, _forCreator);
+        emit ChallengeCreated(challengeCounter, msg.sender, _forCreator, _expiration, _disputePeriod,
+        _description, _challengeCreatorReward);
         return challengeCounter;
     }
     
