@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import "src/IFireXp.sol";
 
 /**
  * @title ZharChallenges
@@ -20,7 +21,7 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
     
     // ============ STATE VARIABLES ============
 
-    IERC20 public immutable fireXPToken;
+    IFireXp public immutable fireXPToken;
     IERC20 public immutable europToken;
     address public defiTreasury;
     
@@ -117,7 +118,7 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
     ) Ownable(_owner) {
         
         europToken = IERC20(_europToken);
-        fireXPToken = IERC20(_fireXPToken);
+        fireXPToken = IFireXp(_fireXPToken);
         defiTreasury = _defiTreasury;
     }
     
@@ -266,7 +267,6 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         whenNotPaused 
     {
         Challenge storage challenge = challenges[_challengeId];
-        require(msg.sender == challenge.forCreator, "Only creator can claim");
         require(challenge.status == ChallengeStatus.ProofSubmitted, "Invalid status");
         require(challenge.claimedAt == 0, "Already claimed");
         require(
@@ -335,6 +335,16 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         require(europToken.transfer(challenge.forCreator, zharriorShare), "Zharrior transfer failed");
         require(europToken.transfer(challenge.igniter, igniterShare), "Igniter transfer failed");
         require(europToken.transfer(defiTreasury, defiShare), "DeFi transfer failed");
+
+        fireXPToken.mint(challenge.forCreator, zharriorShare);
+        fireXPToken.mint(defiTreasury, defiShare);
+        for (uint256 i = 0; i < challenge.stokers.length; i++) {
+            address stoker = challenge.stokers[i];
+            uint256 stake = challenge.stakes[stoker];
+            if (stake > 0) {
+                fireXPToken.mint(stoker, stake);
+            }
+        }
         
         // Update creator stats
         creators[challenge.forCreator].totalChallengesCompleted++;
@@ -354,10 +364,6 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
     }
     
     // ============ VIEW FUNCTIONS ============
-    
-    // function getChallenge(uint256 _challengeId) external view challengeExists(_challengeId) returns (Challenge memory) {
-    //     return challenges[_challengeId];
-    // }
     
     function getChallengeStakers(uint256 _challengeId) external view challengeExists(_challengeId) returns (address[] memory, uint256[] memory) {
         Challenge storage challenge = challenges[_challengeId];

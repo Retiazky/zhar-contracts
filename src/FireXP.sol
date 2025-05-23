@@ -17,4 +17,12 @@ contract FireXP is ERC20, ERC20Burnable, Ownable, ERC20Permit {
     function mint(address to, uint256 amount) public onlyOwner {
         _mint(to, amount);
     }
+
+    function _update(address from, address to, uint256 value) override internal {
+        if (from == address(0) || to == address(0)) {
+            super._update(from, to, value);
+        } else {
+            revert("FireXP: transfer not allowed");
+        }
+    }
 }
