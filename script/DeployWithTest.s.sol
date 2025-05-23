@@ -15,6 +15,9 @@ contract DeployWithTestScript is Script {
         address deployer = vm.addr(deployerPrivateKey);
         address user1 = vm.addr(user1PrivateKey);
         address user2 = vm.addr(user2PrivateKey);
+        console.log("Deployer address:", deployer);
+        console.log("User1 address:", user1);
+        console.log("User2 address:", user2);
     
         // Deploy contracts
         vm.startBroadcast(deployerPrivateKey);
@@ -22,13 +25,16 @@ contract DeployWithTestScript is Script {
         payable(user2).transfer(1 ether);
 
         FireXP fireXP = new FireXP(deployer);
+        console.log("FireXP contract deployed at:", address(fireXP));
         EUROPToken europ = new EUROPToken(deployer);
+        console.log("EUROP contract deployed at:", address(europ));
         ZharChallenges zharChallenges = new ZharChallenges(
             address(fireXP),
             address(europ),
             address(europ),
             deployer
         );
+        console.log("ZharChallenges contract deployed at:", address(zharChallenges));
         fireXP.transferOwnership(address(zharChallenges));
         europ.mint(deployer, 1_000_000 ether);
         europ.mint(user1, 100_000 ether);
