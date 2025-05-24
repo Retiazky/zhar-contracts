@@ -21,8 +21,8 @@ contract DeployWithTestScript is Script {
     
         // Deploy contracts
         vm.startBroadcast(deployerPrivateKey);
-        payable(user1).transfer(1 ether);
-        payable(user2).transfer(1 ether);
+        payable(user1).transfer(0.01 ether);
+        payable(user2).transfer(0.01 ether);
 
         FireXP fireXP = new FireXP(deployer);
         console.log("FireXP contract deployed at:", address(fireXP));
@@ -50,12 +50,14 @@ contract DeployWithTestScript is Script {
         // user2 creates a challenge for user1
         vm.startBroadcast(user2PrivateKey);
         uint256 expiration1 = block.timestamp + 48 hours;
+        europ.approve(address(zharChallenges), 10 ether);
         uint256 challengeId1 = zharChallenges.createChallenge(
             user1,
             "Do something epic!",
             expiration1,
             7000, // 70% reward
-            0
+            0,
+            10 ether
         );
         europ.approve(address(zharChallenges), 10_000 ether);
         zharChallenges.depositToChallenge(challengeId1, 10_000 ether);
@@ -82,12 +84,14 @@ contract DeployWithTestScript is Script {
         // user2 creates another challenge for user1
         vm.startBroadcast(user2PrivateKey);
         uint256 expiration2 = block.timestamp + 48 hours;
+        europ.approve(address(zharChallenges), 10 ether);
         uint256 challengeId2 = zharChallenges.createChallenge(
             user1,
             "Do something else!",
             expiration2,
             7000, // 70% reward
-            0
+            1000,
+            10 ether
         );
         europ.approve(address(zharChallenges), 10_000 ether);
         zharChallenges.depositToChallenge(challengeId2, 10_000 ether);

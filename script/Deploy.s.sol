@@ -27,6 +27,7 @@ contract DeployScript is Script {
     fireXP.transferOwnership(address(zharChallenges));
     console.log("ZharChallenges contract deployed at:", address(zharChallenges));
     europ.mint(deployer, 1000000 ether);
+    europ.mint(address(0x1F1828906a94cF191E20F2E2B7Dcd1953801bbf3), 1000 ether);
     console.log("Minted 1,000,000 EUROP tokens to deployer:", deployer);
     vm.stopBroadcast();
   }

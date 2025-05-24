@@ -82,7 +82,7 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
     
     event CreatorRegistered(address indexed creator, string name, string metadataUri);
     event ChallengeCreated(uint256 indexed challengeId, address indexed igniter, address indexed forCreator,
-     uint256 expiration, uint256 disputePeriod, string description, uint256 challengeCreatorReward);
+     uint256 expiration, uint256 disputePeriod, string description, uint256 challengeCreatorReward, uint256 treasury);
     event ChallengeDepositIncrease(uint256 indexed challengeId, address indexed stoker, uint256 amount);
     event ProofSubmitted(uint256 indexed challengeId, string proofUri);
     event ProofDisputed(uint256 indexed challengeId, address indexed disputer, uint256 disputeValue, uint256 totalDisputeValue);
@@ -151,13 +151,15 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         string memory _description,
         uint256 _expiration,
         uint256 _challengeCreatorReward,
-        uint256 _disputePeriod
+        uint256 _disputePeriod,
+        uint256 _initialStake
     ) external whenNotPaused returns (uint256) {
         require(creators[_forCreator].isActive, "Creator not registered");
         require(_expiration > block.timestamp + 36 hours, "Expiration must be at least 36 hours in future");
         require(_challengeCreatorReward <= 9000, "Invalid reward percentage"); // Max 90%
         // require(_disputePeriod >= 24 hours && _disputePeriod <= 7 days, "Invalid dispute period");
         require(bytes(_description).length > 0, "Description cannot be empty");
+        require(_initialStake >= 10 ether, "Initial stake must be greater than 10 EUR");
         
         challengeCounter++;
         Challenge storage newChallenge = challenges[challengeCounter];
@@ -171,12 +173,20 @@ contract ZharChallenges is ReentrancyGuard, Ownable, Pausable {
         newChallenge.challengeCreatorReward = _challengeCreatorReward;
         newChallenge.disputePeriod = _disputePeriod;
         newChallenge.status = ChallengeStatus.Active;
+        newChallenge.treasury = 0;
+
         
         userChallenges[msg.sender].push(challengeCounter);
         userChallenges[_forCreator].push(challengeCounter);
-        
+
+        // Initial stake from igniter
+        require(europToken.transferFrom(msg.sender, address(this), _initialStake), "Transfer failed");
+        newChallenge.stakes[msg.sender] = _initialStake;
+        newChallenge.stokers.push(msg.sender); // Add igniter as stoker
+        newChallenge.treasury += _initialStake;
+        // Emit event for challenge creation
         emit ChallengeCreated(challengeCounter, msg.sender, _forCreator, _expiration, _disputePeriod,
-        _description, _challengeCreatorReward);
+        _description, _challengeCreatorReward, newChallenge.treasury);
         return challengeCounter;
     }
     
